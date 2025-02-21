@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Touch & Gyro Glow Visualizer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0d0d1a;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+</head>
+<body>
+    <script>
+        // Orientation data
+        let orientation = { alpha: 0, beta: 0, gamma: 0 };
+        let permissionGranted = false;
+        let touchPos = { x: null, y: null };
+
+        // Request gyroscope permission
+        function requestPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && 
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            permissionGranted = true;
+                            window.addEventListener('deviceorientation', (event) => {
+                                orientation.alpha = event.alpha || 0;
+                                orientation.beta = event.beta || 0;
+                                orientation.gamma = event.gamma || 0;
+                            });
+                        }
+                    })
+                    .catch(err => console.error('Permission denied:', err));
+            } else {
+                permissionGranted = true;
+                window.addEventListener('deviceorientation', (event) => {
+                    orientation.alpha = event.alpha || 0;
+                    orientation.beta = event.beta || 0;
+                    orientation.gamma = event.gamma || 0;
+                });
+            }
+        }
+
+        // Three.js setup
+        let scene, camera, renderer, mesh, glowMaterial;
+        function initThree() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Glowing icosahedron
+            const geometry = new THREE.IcosahedronGeometry(1, 1);
+            glowMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    glowColor: { value: new THREE.Color(0x00ffff) }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    uniform vec3 glowColor;
+                    varying vec3 vNormal;
+                    void main() {
+                        float intensity = pow(0.8 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+                        gl_FragColor = vec4(glowColor, 1.0) * intensity * (sin(time) * 0.5 + 0.5);
+                    }
+                `,
+                side: THREE.BackSide,
+                blending: THREE.AdditiveBlending,
+                transparent: true
+            });
+            mesh = new THREE.Mesh(geometry, glowMaterial);
+            mesh.scale.set(1.5, 1.5, 1.5);
+            scene.add(mesh);
+
+            camera.position.z = 5;
+
+            window.addEventListener('resize', () => {
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+            });
+        }
+
+        // p5.js setup
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            noStroke();
+
+            if (!permissionGranted) {
+                let button = createButton('Enable Gyro');
+                button.position(width/2 - 50, height/2 - 20);
+                button.style('padding', '10px 20px');
+                button.style('background', '#ff6f61');
+                button.style('border', 'none');
+                button.style('border-radius', '5px');
+                button.style('color', 'white');
+                button.mousePressed(requestPermission);
+            }
+
+            initThree();
+        }
+
+        // p5.js draw loop (handles touch and glow orb)
+        function draw() {
+            background(13, 13, 26, 150);
+
+            // Touch visualization (glowing orb)
+            if (touchPos.x !== null && touchPos.y !== null) {
+                let glowSize = sin(frameCount * 0.05) * 20 + 60;
+                for (let r = glowSize; r > 0; r -= 5) {
+                    fill(150, 100, 255, map(r, 0, glowSize, 0, 50));
+                    ellipse(touchPos.x, touchPos.y, r, r);
+                }
+            }
+
+            // Three.js animation (gyroscope-driven icosahedron)
+            if (permissionGranted) {
+                mesh.rotation.x = radians(orientation.beta);
+                mesh.rotation.y = radians(orientation.gamma);
+                mesh.rotation.z = radians(orientation.alpha);
+                glowMaterial.uniforms.time.value += 0.05;
+            }
+            renderer.render(scene, camera);
+        }
+
+        // Touch handling
+        function touchStarted() {
+            if (touches.length > 0) {
+                touchPos.x = touches[0].x;
+                touchPos.y = touches[0].y;
+            }
+            return false;
+        }
+
+        function touchMoved() {
+            if (touches.length > 0) {
+                touchPos.x = touches[0].x;
+                touchPos.y = touches[0].y;
+            }
+            return false;
+        }
+
+        function touchEnded() {
+            touchPos.x = null;
+            touchPos.y = null;
+            return false;
+        }
+    </script>
+</body>
+</html>
