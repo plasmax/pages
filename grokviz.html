@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iPhone Sensor Visualizer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+        #data {
+            margin-top: 20px;
+            font-size: 16px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+</head>
+<body>
+    <div id="data"></div>
+
+    <script>
+        // Sensor data variables
+        let accel = { x: 0, y: 0, z: 0 };
+        let gyro = { alpha: 0, beta: 0, gamma: 0 };
+        let orientation = { alpha: 0, beta: 0, gamma: 0 };
+        let permissionGranted = false;
+
+        // Request permission for iOS motion sensors
+        function requestSensorPermission() {
+            if (typeof DeviceMotionEvent !== 'undefined' && 
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            permissionGranted = true;
+                            setupSensors();
+                        }
+                    })
+                    .catch(err => console.error('Permission denied:', err));
+            } else {
+                // For non-iOS or older browsers
+                permissionGranted = true;
+                setupSensors();
+            }
+
+            if (typeof DeviceOrientationEvent !== 'undefined' && 
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            permissionGranted = true;
+                            setupSensors();
+                        }
+                    })
+                    .catch(err => console.error('Permission denied:', err));
+            }
+        }
+
+        // Set up sensor event listeners
+        function setupSensors() {
+            window.addEventListener('devicemotion', (event) => {
+                accel.x = event.acceleration.x || 0;
+                accel.y = event.acceleration.y || 0;
+                accel.z = event.acceleration.z || 0;
+            });
+
+            window.addEventListener('deviceorientation', (event) => {
+                orientation.alpha = event.alpha || 0; // Z-axis rotation
+                orientation.beta = event.beta || 0;   // X-axis rotation
+                orientation.gamma = event.gamma || 0; // Y-axis rotation
+            });
+        }
+
+        // p5.js setup
+        function setup() {
+            createCanvas(600, 400);
+            textAlign(CENTER, CENTER);
+            textSize(16);
+            
+            // Add permission button for iOS
+            if (!permissionGranted) {
+                let button = createButton('Grant Sensor Access');
+                button.position(250, 180);
+                button.mousePressed(requestSensorPermission);
+            }
+        }
+
+        // p5.js draw loop
+        function draw() {
+            background(220);
+
+            // Draw accelerometer visualization (moving ball)
+            let ballX = map(accel.x, -10, 10, 0, width/2);
+            let ballY = map(accel.y, -10, 10, 0, height);
+            fill(255, 0, 0);
+            ellipse(ballX, ballY, 20, 20);
+
+            // Draw orientation visualization (rotating rectangle)
+            push();
+            translate(width * 0.75, height/2);
+            rotate(radians(orientation.beta));
+            fill(0, 0, 255);
+            rect(-25, -25, 50, 50);
+            pop();
+
+            // Update HTML data display
+            let dataDiv = document.getElementById('data');
+            dataDiv.innerHTML = `
+                <strong>Accelerometer:</strong><br>
+                X: ${accel.x.toFixed(2)} m/s²<br>
+                Y: ${accel.y.toFixed(2)} m/s²<br>
+                Z: ${accel.z.toFixed(2)} m/s²<br><br>
+                <strong>Orientation:</strong><br>
+                Alpha: ${orientation.alpha.toFixed(2)}°<br>
+                Beta: ${orientation.beta.toFixed(2)}°<br>
+                Gamma: ${orientation.gamma.toFixed(2)}°
+            `;
+        }
+    </script>
+</body>
+</html>
