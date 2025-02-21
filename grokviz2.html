@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iPhone 11 Sensor & Network Data</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+        #data {
+            margin-top: 20px;
+            font-size: 16px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+</head>
+<body>
+    <div id="data"></div>
+
+    <script>
+        // Sensor data variables
+        let accel = { x: 0, y: 0, z: 0 };
+        let orientation = { alpha: 0, beta: 0, gamma: 0 };
+        let battery = { level: 'N/A', charging: 'N/A' };
+        let network = { type: 'N/A', effectiveType: 'N/A' };
+        let geolocation = { lat: 'N/A', lon: 'N/A', accuracy: 'N/A' };
+        let screenInfo = { width: window.innerWidth, height: window.innerHeight };
+        let permissionGranted = false;
+
+        // Request permission for iOS motion sensors
+        function requestSensorPermission() {
+            if (typeof DeviceMotionEvent !== 'undefined' && 
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            permissionGranted = true;
+                            setupSensors();
+                        }
+                    })
+                    .catch(err => console.error('Permission denied:', err));
+            } else {
+                permissionGranted = true;
+                setupSensors();
+            }
+
+            if (typeof DeviceOrientationEvent !== 'undefined' && 
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            setupSensors();
+                        }
+                    })
+                    .catch(err => console.error('Permission denied:', err));
+            }
+        }
+
+        // Set up sensor event listeners
+        function setupSensors() {
+            window.addEventListener('devicemotion', (event) => {
+                accel.x = event.acceleration.x || 0;
+                accel.y = event.acceleration.y || 0;
+                accel.z = event.acceleration.z || 0;
+            });
+
+            window.addEventListener('deviceorientation', (event) => {
+                orientation.alpha = event.alpha || 0;
+                orientation.beta = event.beta || 0;
+                orientation.gamma = event.gamma || 0;
+            });
+        }
+
+        // Get battery info
+        if (navigator.getBattery) {
+            navigator.getBattery().then(bat => {
+                battery.level = (bat.level * 100).toFixed(0) + '%';
+                battery.charging = bat.charging ? 'Yes' : 'No';
+                bat.addEventListener('levelchange', () => {
+                    battery.level = (bat.level * 100).toFixed(0) + '%';
+                });
+                bat.addEventListener('chargingchange', () => {
+                    battery.charging = bat.charging ? 'Yes' : 'No';
+                });
+            });
+        }
+
+        // Get network info (limited on iOS)
+        if (navigator.connection) {
+            network.type = navigator.connection.type || 'N/A';
+            network.effectiveType = navigator.connection.effectiveType || 'N/A';
+            navigator.connection.addEventListener('change', () => {
+                network.type = navigator.connection.type || 'N/A';
+                network.effectiveType = navigator.connection.effectiveType || 'N/A';
+            });
+        }
+
+        // Get geolocation (requires user permission)
+        function getGeolocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    pos => {
+                        geolocation.lat = pos.coords.latitude.toFixed(4);
+                        geolocation.lon = pos.coords.longitude.toFixed(4);
+                        geolocation.accuracy = pos.coords.accuracy.toFixed(0) + 'm';
+                    },
+                    err => console.error('Geolocation error:', err),
+                    { enableHighAccuracy: true }
+                );
+            }
+        }
+
+        // p5.js setup
+        function setup() {
+            createCanvas(600, 600);
+            textAlign(CENTER, CENTER);
+            textSize(16);
+
+            if (!permissionGranted) {
+                let button = createButton('Grant Sensor Access');
+                button.position(250, 280);
+                button.mousePressed(() => {
+                    requestSensorPermission();
+                    getGeolocation();
+                });
+            } else {
+                getGeolocation();
+            }
+        }
+
+        // p5.js draw loop
+        function draw() {
+            background(220);
+
+            // Accelerometer visualization (moving ball)
+            let ballX = map(accel.x, -10, 10, 0, width/3);
+            let ballY = map(accel.y, -10, 10, 0, height/3);
+            fill(255, 0, 0);
+            ellipse(ballX, ballY, 20, 20);
+
+            // Orientation visualization (rotating rectangle)
+            push();
+            translate(width * 2/3, height/3);
+            rotate(radians(orientation.beta));
+            fill(0, 0, 255);
+            rect(-25, -25, 50, 50);
+            pop();
+
+            // Battery level visualization (bar)
+            let batteryWidth = map(parseFloat(battery.level) || 0, 0, 100, 0, width/3);
+            fill(0, 255, 0);
+            rect(0, height/3 + 20, batteryWidth, 20);
+
+            // Network type (simple indicator)
+            fill(0);
+            text(network.effectiveType, width/2, height/2);
+
+            // Update HTML data display
+            let dataDiv = document.getElementById('data');
+            dataDiv.innerHTML = `
+                <strong>Accelerometer:</strong><br>
+                X: ${accel.x.toFixed(2)} m/s²<br>
+                Y: ${accel.y.toFixed(2)} m/s²<br>
+                Z: ${accel.z.toFixed(2)} m/s²<br><br>
+                <strong>Orientation:</strong><br>
+                Alpha: ${orientation.alpha.toFixed(2)}°<br>
+                Beta: ${orientation.beta.toFixed(2)}°<br>
+                Gamma: ${orientation.gamma.toFixed(2)}°<br><br>
+                <strong>Battery:</strong><br>
+                Level: ${battery.level}<br>
+                Charging: ${battery.charging}<br><br>
+                <strong>Network:</strong><br>
+                Type: ${network.type}<br>
+                Effective Type: ${network.effectiveType}<br><br>
+                <strong>Geolocation:</strong><br>
+                Lat: ${geolocation.lat}<br>
+                Lon: ${geolocation.lon}<br>
+                Accuracy: ${geolocation.accuracy}<br><br>
+                <strong>Screen:</strong><br>
+                Width: ${screenInfo.width}px<br>
+                Height: ${screenInfo.height}px
+            `;
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            screenInfo.width = window.innerWidth;
+            screenInfo.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
