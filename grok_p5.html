@@ -3,115 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPhone 11 Sensor Visualizer</title>
+    <title>Touch & Gyro Glow Visualizer</title>
     <style>
         body {
             margin: 0;
-            padding: 20px;
-            font-family: 'Arial', sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            padding: 0;
+            background: #0d0d1a;
+            overflow: hidden;
         }
         canvas {
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            display: block;
         }
-        #data {
-            margin-top: 20px;
-            font-size: 16px;
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px;
-            border-radius: 8px;
-            line-height: 1.5;
-        }
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
+        #permissionButton {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            font-size: 18px;
             background: #ff6f61;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             color: white;
             cursor: pointer;
+            z-index: 10;
         }
-        button:hover {
+        #permissionButton:hover {
             background: #ff8a75;
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
 </head>
 <body>
-    <div id="data"></div>
+    <button id="permissionButton">Enable Gyro</button>
 
     <script>
-        // Sensor data variables
-        let accel = { x: 0, y: 0, z: 0 };
+        // Orientation data
         let orientation = { alpha: 0, beta: 0, gamma: 0 };
-        let battery = { level: 'N/A', charging: 'N/A' };
-        let network = { type: 'N/A', effectiveType: 'N/A' };
-        let geolocation = { lat: 'N/A', lon: 'N/A', accuracy: 'N/A' };
-        let screenInfo = { width: window.innerWidth, height: window.innerHeight };
         let permissionGranted = false;
-        let particles = [];
+        let touchPos = { x: null, y: null };
+        let scene, camera, renderer, mesh, glowMaterial;
 
-        // Particle class for visual effects
-        class Particle {
-            constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                this.size = random(5, 15);
-                this.speedX = random(-1, 1);
-                this.speedY = random(-1, 1);
-                this.life = 255;
-            }
-            update() {
-                this.x += this.speedX;
-                this.y += this.speedY;
-                this.life -= 2;
-            }
-            display() {
-                noStroke();
-                fill(255, 100, 150, this.life);
-                ellipse(this.x, this.y, this.size, this.size);
-            }
-        }
-
-        // Request sensor permissions
-        function requestSensorPermission() {
-            if (typeof DeviceMotionEvent !== 'undefined' && 
-                typeof DeviceMotionEvent.requestPermission === 'function') {
-                DeviceMotionEvent.requestPermission()
+        // Request gyroscope permission
+        function requestPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && 
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
                     .then(response => {
                         if (response === 'granted') {
                             permissionGranted = true;
                             setupSensors();
+                            initThree();
+                            document.getElementById('permissionButton').style.display = 'none';
                         }
                     })
                     .catch(err => console.error('Permission denied:', err));
             } else {
                 permissionGranted = true;
                 setupSensors();
-            }
-
-            if (typeof DeviceOrientationEvent !== 'undefined' && 
-                typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(response => {
-                        if (response === 'granted') {
-                            setupSensors();
-                        }
-                    })
-                    .catch(err => console.error('Permission denied:', err));
+                initThree();
+                document.getElementById('permissionButton').style.display = 'none';
             }
         }
 
-        // Set up sensor listeners
+        // Set up sensor listener
         function setupSensors() {
-            window.addEventListener('devicemotion', (event) => {
-                accel.x = event.acceleration.x || 0;
-                accel.y = event.acceleration.y || 0;
-                accel.z = event.acceleration.z || 0;
-            });
-
             window.addEventListener('deviceorientation', (event) => {
                 orientation.alpha = event.alpha || 0;
                 orientation.beta = event.beta || 0;
@@ -119,129 +76,108 @@
             });
         }
 
-        // Battery info
-        if (navigator.getBattery) {
-            navigator.getBattery().then(bat => {
-                battery.level = (bat.level * 100).toFixed(0) + '%';
-                battery.charging = bat.charging ? 'Yes' : 'No';
-                bat.addEventListener('levelchange', () => {
-                    battery.level = (bat.level * 100).toFixed(0) + '%';
-                });
-                bat.addEventListener('chargingchange', () => {
-                    battery.charging = bat.charging ? 'Yes' : 'No';
-                });
-            });
-        }
+        // Three.js setup
+        function initThree() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
 
-        // Network info
-        if (navigator.connection) {
-            network.type = navigator.connection.type || 'N/A';
-            network.effectiveType = navigator.connection.effectiveType || 'N/A';
-            navigator.connection.addEventListener('change', () => {
-                network.type = navigator.connection.type || 'N/A';
-                network.effectiveType = navigator.connection.effectiveType || 'N/A';
+            // Glowing icosahedron
+            const geometry = new THREE.IcosahedronGeometry(1, 1);
+            glowMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    glowColor: { value: new THREE.Color(0x00ffff) }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    uniform vec3 glowColor;
+                    varying vec3 vNormal;
+                    void main() {
+                        float intensity = pow(0.8 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+                        gl_FragColor = vec4(glowColor, 1.0) * intensity * (sin(time) * 0.5 + 0.5);
+                    }
+                `,
+                side: THREE.BackSide,
+                blending: THREE.AdditiveBlending,
+                transparent: true
             });
-        }
+            mesh = new THREE.Mesh(geometry, glowMaterial);
+            mesh.scale.set(1.5, 1.5, 1.5);
+            scene.add(mesh);
 
-        // Geolocation
-        function getGeolocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    pos => {
-                        geolocation.lat = pos.coords.latitude.toFixed(4);
-                        geolocation.lon = pos.coords.longitude.toFixed(4);
-                        geolocation.accuracy = pos.coords.accuracy.toFixed(0) + 'm';
-                    },
-                    err => console.error('Geolocation error:', err),
-                    { enableHighAccuracy: true }
-                );
-            }
+            camera.position.z = 5;
+
+            window.addEventListener('resize', () => {
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+            });
         }
 
         // p5.js setup
         function setup() {
-            createCanvas(600, 600);
-            textAlign(CENTER, CENTER);
-            textSize(16);
+            createCanvas(windowWidth, windowHeight);
+            noStroke();
 
-            if (!permissionGranted) {
-                let button = createButton('Grant Sensor Access');
-                button.position(width/2 - 80, height/2);
-                button.mousePressed(() => {
-                    requestSensorPermission();
-                    getGeolocation();
-                });
-            } else {
-                getGeolocation();
-            }
+            // Attach permission request to HTML button
+            document.getElementById('permissionButton').addEventListener('click', requestPermission);
         }
 
         // p5.js draw loop
         function draw() {
-            background(26, 26, 46, 200);
+            background(13, 13, 26, 150);
 
-            // Accelerometer visualization (pulsing orb with particles)
-            let accelX = map(accel.x, -10, 10, 0, width/3);
-            let accelY = map(accel.y, -10, 10, 0, height/3);
-            let pulse = sin(frameCount * 0.05) * 10 + 40;
-            fill(255, 100, 150);
-            ellipse(accelX, accelY, pulse, pulse);
-            if (random() > 0.8) particles.push(new Particle(accelX, accelY));
-
-            // Orientation visualization (rotating gradient star)
-            push();
-            translate(width * 2/3, height/3);
-            rotate(radians(orientation.beta));
-            for (let i = 0; i < 8; i++) {
-                let angle = TWO_PI / 8 * i;
-                let x = cos(angle) * 50;
-                let y = sin(angle) * 50;
-                fill(lerpColor(color(100, 150, 255), color(200, 100, 255), i/8));
-                noStroke();
-                triangle(0, 0, x, y, x*0.5, y*0.5);
-            }
-            pop();
-
-            // Battery visualization (gradient arc)
-            let batteryVal = parseFloat(battery.level) || 0;
-            let arcLen = map(batteryVal, 0, 100, 0, TWO_PI);
-            for (let i = 0; i < 50; i++) {
-                let a = map(i, 0, 50, 0, arcLen);
-                stroke(lerpColor(color(255, 100, 100), color(100, 255, 100), i/50));
-                strokeWeight(4);
-                point(width/6 + cos(a) * 60, height * 2/3 + sin(a) * 60);
-            }
-            noStroke();
-
-            // Network visualization (bouncing text)
-            fill(150, 255, 200);
-            textSize(20 + sin(frameCount * 0.1) * 5);
-            text(network.effectiveType, width/2, height - 50);
-
-            // Particles update and display
-            for (let i = particles.length - 1; i >= 0; i--) {
-                particles[i].update();
-                particles[i].display();
-                if (particles[i].life <= 0) particles.splice(i, 1);
+            // Touch visualization (glowing orb)
+            if (touchPos.x !== null && touchPos.y !== null) {
+                let glowSize = sin(frameCount * 0.05) * 20 + 60;
+                for (let r = glowSize; r > 0; r -= 5) {
+                    fill(150, 100, 255, map(r, 0, glowSize, 0, 50));
+                    ellipse(touchPos.x, touchPos.y, r, r);
+                }
             }
 
-            // Update HTML data display
-            let dataDiv = document.getElementById('data');
-            dataDiv.innerHTML = `
-                <strong>Accelerometer:</strong><br>X: ${accel.x.toFixed(2)} m/s² | Y: ${accel.y.toFixed(2)} m/s² | Z: ${accel.z.toFixed(2)} m/s²<br>
-                <strong>Orientation:</strong><br>Alpha: ${orientation.alpha.toFixed(2)}° | Beta: ${orientation.beta.toFixed(2)}° | Gamma: ${orientation.gamma.toFixed(2)}°<br>
-                <strong>Battery:</strong><br>Level: ${battery.level} | Charging: ${battery.charging}<br>
-                <strong>Network:</strong><br>Type: ${network.type} | Effective: ${network.effectiveType}<br>
-                <strong>Geolocation:</strong><br>Lat: ${geolocation.lat} | Lon: ${geolocation.lon} | Acc: ${geolocation.accuracy}<br>
-                <strong>Screen:</strong><br>${screenInfo.width}px × ${screenInfo.height}px
-            `;
+            // Three.js animation (if initialized)
+            if (permissionGranted && mesh) {
+                mesh.rotation.x = radians(orientation.beta);
+                mesh.rotation.y = radians(orientation.gamma);
+                mesh.rotation.z = radians(orientation.alpha);
+                glowMaterial.uniforms.time.value += 0.05;
+                renderer.render(scene, camera);
+            }
         }
 
-        // Handle resize
-        window.addEventListener('resize', () => {
-            screenInfo.width = window.innerWidth;
-            screenInfo.height = window.innerHeight;
-        });
+        // Touch handling
+        function touchStarted() {
+            if (touches.length > 0) {
+                touchPos.x = touches[0].x;
+                touchPos.y = touches[0].y;
+            }
+            return false;
+        }
+
+        function touchMoved() {
+            if (touches.length > 0) {
+                touchPos.x = touches[0].x;
+                touchPos.y = touches[0].y;
+            }
+            return false;
+        }
+
+        function touchEnded() {
+            touchPos.x = null;
+            touchPos.y = null;
+            return false;
+        }
     </script>
 </body>
 </html>
