@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AR Earth Beneath Your Feet</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+        }
+        #startButton {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            z-index: 100;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">AR Earth Viewer<br>See the other side of the world beneath your feet</div>
+    <button id="startButton">Start AR Experience</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // Main variables
+        let camera, scene, renderer;
+        let earth;
+        let controller;
+        let reticle;
+        let hitTestSource = null;
+        let hitTestSourceRequested = false;
+        let isPlaced = false;
+
+        // Initialize the scene
+        function init() {
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+
+            // Create scene
+            scene = new THREE.Scene();
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Light
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+            light.position.set(0.5, 1, 0.25);
+            scene.add(light);
+
+            // Create Earth
+            createEarth();
+
+            // Controller for AR
+            controller = renderer.xr.getController(0);
+            controller.addEventListener('select', onSelect);
+            scene.add(controller);
+
+            // Reticle (the target indicator for placing objects)
+            reticle = new THREE.Mesh(
+                new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+                new THREE.MeshBasicMaterial()
+            );
+            reticle.matrixAutoUpdate = false;
+            reticle.visible = false;
+            scene.add(reticle);
+
+            // AR Button
+            document.getElementById('startButton').addEventListener('click', onStartAR);
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // Create Earth with texture
+        function createEarth() {
+            const earthGeometry = new THREE.SphereGeometry(1, 64, 64);
+            
+            // Create Earth material with texture
+            const textureLoader = new THREE.TextureLoader();
+            const earthTexture = textureLoader.load('https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg');
+            const bumpMap = textureLoader.load('https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png');
+            
+            const earthMaterial = new THREE.MeshPhongMaterial({
+                map: earthTexture,
+                bumpMap: bumpMap,
+                bumpScale: 0.05,
+                transparent: true,
+                opacity: 0.7,
+                shininess: 5
+            });
+            
+            earth = new THREE.Mesh(earthGeometry, earthMaterial);
+            earth.visible = false; // Hide until placed
+            scene.add(earth);
+        }
+
+        // Handler for AR session start
+        function onStartAR() {
+            const sessionInit = { requiredFeatures: ['hit-test'] };
+            navigator.xr.requestSession('immersive-ar', sessionInit)
+                .then(onSessionStarted)
+                .catch(err => {
+                    alert("AR not supported on this device: " + err.message);
+                });
+        }
+
+        // Setup AR session
+        function onSessionStarted(session) {
+            document.getElementById('startButton').style.display = 'none';
+            
+            session.addEventListener('end', onSessionEnded);
+            
+            renderer.xr.setReferenceSpaceType('local');
+            renderer.xr.setSession(session);
+            
+            animate();
+        }
+
+        // Clean up when AR session ends
+        function onSessionEnded() {
+            document.getElementById('startButton').style.display = 'block';
+            renderer.xr.setSession(null);
+        }
+
+        // Place Earth on tap/select
+        function onSelect() {
+            if (reticle.visible && !isPlaced) {
+                // Position Earth below the reticle (beneath feet)
+                earth.position.setFromMatrixPosition(reticle.matrix);
+                // Move it down by 2 meters
+                earth.position.y -= 2;
+                // Scale the Earth
+                earth.scale.set(1.5, 1.5, 1.5);
+                earth.visible = true;
+                isPlaced = true;
+                
+                // Get user's geo position if available
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        position => {
+                            const latitude = position.coords.latitude;
+                            const longitude = position.coords.longitude;
+                            
+                            // Rotate the earth so the antipode of the user's location is upward
+                            // (antipode = opposite point on Earth)
+                            const latRad = (90 - latitude) * (Math.PI / 180);
+                            const lonRad = (longitude + 180) * (Math.PI / 180);
+                            
+                            earth.rotation.x = latRad;
+                            earth.rotation.y = lonRad;
+                        },
+                        () => {
+                            console.log("Geolocation not available");
+                        }
+                    );
+                }
+            }
+        }
+
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Animation loop
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        // Render function
+        function render(timestamp, frame) {
+            if (frame) {
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
+
+                if (hitTestSourceRequested === false) {
+                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+                            hitTestSource = source;
+                        });
+                    });
+
+                    session.addEventListener('end', function () {
+                        hitTestSourceRequested = false;
+                        hitTestSource = null;
+                    });
+
+                    hitTestSourceRequested = true;
+                }
+
+                if (hitTestSource && !isPlaced) {
+                    const hitTestResults = frame.getHitTestResults(hitTestSource);
+
+                    if (hitTestResults.length) {
+                        const hit = hitTestResults[0];
+                        reticle.visible = true;
+                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                    } else {
+                        reticle.visible = false;
+                    }
+                }
+            }
+
+            // Slowly rotate Earth for effect
+            if (earth && earth.visible) {
+                earth.rotation.y += 0.001;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Start initialization
+        init();
+    </script>
+</body>
+</html>
